@@ -562,6 +562,20 @@ exports.sendSms = functions.https.onRequest((req, res) =>{
   })
 })
 
+exports.testAPI = functions.https.onRequest((req, res) =>{
+  return cors (req, res,  () =>{
+    axios.get('https://2d7cde10f5b3.ngrok.io/shopify?data=' + JSON.stringify(req.body)).then(data =>{
+      console.log(data)
+      return ''
+    }).catch(error =>{
+      console.log(error)
+      return ''
+    })
+    res.send('')
+    return '';
+  })
+})
+
 
 
 
