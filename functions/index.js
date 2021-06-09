@@ -398,14 +398,14 @@ exports.sortRequests =  functions.database.ref('/newReq/{pushId}/').onCreate((sn
       response =  response.results[0];
       const loc = response.address_components;
       response = response.geometry.location;
-      return sortPlaces(loc, key, pushedValues.do_coords);
+      return sortPlaces(loc, key, pushedValues.pu_coords);
     }).catch(error =>{
       console.log(error);
       return error;
     })
 })
 
-function sortPlaces (dropOffCoords, key, do_coords){
+function sortPlaces (dropOffCoords, key, pu_coords){
   let tempArray = new Array();
   for (var x = 0; x < dropOffCoords.length; x++) {
       let locations = dropOffCoords[x].types;
@@ -420,10 +420,10 @@ function sortPlaces (dropOffCoords, key, do_coords){
       }
   }
   
-  return checkLocation(tempArray, key, do_coords);
+  return checkLocation(tempArray, key, pu_coords);
 }
 
-function checkLocation (locArray, key, do_coords){
+function checkLocation (locArray, key, pu_coords){
   let tempArray = new Array();
   let found = false;
     admin.database().ref('apiReq/').once('value', data =>{
@@ -453,7 +453,7 @@ function checkLocation (locArray, key, do_coords){
               reqKeys : tempArray,
               packagesNumber : 1,
               distance : 20,
-              do_coords : do_coords,
+              pu_coords : pu_coords,
               verified: false,
               pin : Math.floor(Math.random(100000000 - 100) * 100000000),
               id : Math.floor(Math.random(100000000 - 100) * 100000000),
@@ -470,7 +470,7 @@ function checkLocation (locArray, key, do_coords){
             reqKeys : tempArray,
             packagesNumber : 1,
             distance : 20,
-            do_coords : do_coords,
+            pu_coords : pu_coords,
             verified: false,
             pin : Math.floor(Math.random(100000000 - 100) * 100000000),
             id : Math.floor(Math.random(100000000 - 100) * 100000000),
