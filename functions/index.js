@@ -9,6 +9,7 @@ const cors = require("cors")({origin: true});
 const modeTypes = ["Bike", "Car"];
 let apiResp = "success";
 const TeleSignSDK = require("telesignsdk");
+const { firebaseConfig } = require("firebase-functions");
 const customerId = "FE55B5DA-272D-41AC-9F4C-0ECCBBD62ECC";
 const apiKey = "VkT993DvqmaP/ILy3aP4uuxThojiikS0XHF+Hs8bKA8JbNtf5S3yebdRgMigZt37xehTXRe8SsVyLnZJhNgZpA==";
 const rest_endpoint = "https://rest-api.telesign.com";
@@ -397,14 +398,14 @@ exports.sortRequests = functions.database.ref("/newReq/{pushId}/").onCreate((sna
     response = response.results[0];
     const loc = response.address_components;
     response = response.geometry.location;
-    return sortPlaces(loc, key, pushedValues.pu_coords);
+    return sortPlaces(loc, key, pushedValues.pu_coords, pushedValues.mode, pushedValues.uid);
   }).catch((error) =>{
     console.log(error);
     return error;
   });
 });
 
-function sortPlaces(dropOffCoords, key, pu_coords) {
+function sortPlaces(dropOffCoords, key, pu_coords, mode, userID) {
   const tempArray = new Array();
   for (let x = 0; x < dropOffCoords.length; x++) {
     const locations = dropOffCoords[x].types;
@@ -419,9 +420,9 @@ function sortPlaces(dropOffCoords, key, pu_coords) {
     }
   }
 
-  return checkLocation(tempArray, key, pu_coords);
+  return checkLocation(tempArray, key, pu_coords, mode, userID);
 }
-function addApiReqKeyToNewReq(keyArray, apiReqKey) {
+function addApiReqKeyToNewReq(keyArray, apiReqKey, userID) {
   console.log('is array: ', Array.isArray(keyArray), 'array: ', keyArray)
   if(!Array.isArray(keyArray)) return sendTestEmail(addApiReqKeyToNewReq, null, 'Variable ' + keyArray + ' not an array')
   let promiseArray = [];
@@ -435,7 +436,7 @@ function addApiReqKeyToNewReq(keyArray, apiReqKey) {
   })
 
 }
-function checkLocation(locArray, key, pu_coords) {
+function checkLocation(locArray, key, pu_coords, mode, userID) {
   const tempArray = new Array();
   let found = false;
   admin.database().ref("apiReq/").once("value", async(data) =>{
@@ -452,7 +453,7 @@ function checkLocation(locArray, key, pu_coords) {
               if (!found) {
                 admin.database().ref("apiReq/" + keys[x]).update({reqKeys: arr, packagesNumber: arr.length});
                 console.log('in check location: ', [key], keys[x]);
-                return addApiReqKeyToNewReq([ key ], keys[x]);
+                return addApiReqKeyToNewReq([ key ], keys[x], userID);
               }
               found = true;
               break;
@@ -463,13 +464,14 @@ function checkLocation(locArray, key, pu_coords) {
       if (!found) {
         tempArray.push(key);
         const postKey = admin.database().ref("apiReq/").push().key;
-        await addApiReqKeyToNewReq(tempArray, postKey)
+        await addApiReqKeyToNewReq(tempArray, postKey, userID)
         admin.database().ref(`apiReq/${ postKey }/`).update({
           locationArray: locArray,
           reqKeys: tempArray,
           packagesNumber: 1,
           distance: 20,
           pu_coords: pu_coords,
+          mode: mode,
           verified: false,
           pin: Math.floor(Math.random(100000000 - 100) * 100000000),
           id: Math.floor(Math.random(100000000 - 100) * 100000000),
@@ -484,13 +486,14 @@ function checkLocation(locArray, key, pu_coords) {
     } else {
       tempArray.push(key);
       const postKey = admin.database().ref("apiReq/").push().key;
-      await addApiReqKeyToNewReq(tempArray, postKey)
+      await addApiReqKeyToNewReq(tempArray, postKey, userID)
       admin.database().ref(`apiReq/${ postKey }/`).update({
         locationArray: locArray,
         reqKeys: tempArray,
         packagesNumber: 1,
         distance: 20,
         pu_coords: pu_coords,
+        mode: mode,
         verified: false,
         pin: Math.floor(Math.random(100000000 - 100) * 100000000),
         id: Math.floor(Math.random(100000000 - 100) * 100000000),
@@ -562,8 +565,8 @@ exports.cancelRequest = functions.https.onRequest((req, res) =>{
 });
 
 
-exports.sendSms = functions.https.onRequest((req, res) =>{
-  return cors(req, res, () =>{
+exports.sendSms = functions.https.onRequest((req, res) => {
+  return cors(req, res, () => {
     const phoneNumber = req.query.cellphone;
     const message = req.query.message;
     const messageType = "ARN";
@@ -598,6 +601,60 @@ exports.testAPI = functions.https.onRequest((req, res) =>{
     return "";
   });
 });
+exports.alertUserOnRequestAccepted = functions.database.ref("/apiReq/{pushId}/driverId").onCreate(async(snapshot, context) => {
+  try {
+    const driverId = snapshot.val();
+    console.log('values: ', driverId );
+    const driverData = await admin.database().ref(`drivers/${ driverId }`).once('value')
+    const exists = driverData.val() ? true : false;
+    if(!exists) return ({ code: 400, msg: "Driver ID doesn't match any registered drivers" })
+    const pushId = context.params.pushId;
+    const updateNewReq = (newReqKey) => {
+      admin.database().ref(`newReq/${ newReqKey }/`).update({accepted: true, alertUser: true })
+    }
+    admin.database().ref(`apiReq/${ pushId }/reqKeys`).once('value', data => {
+      console.log('keys: ', data.val());
+      const keys = data.val();
+      keys.forEach( key => {
+        if(key) updateNewReq(key)
+      })
+    })
+    return ({ code: 200, msg: "Data successfully amended on newReq objects" });
+  } catch (error) {
+    return ({ code: 400, msg: error });
+  }
+
+});
+
+exports.makeGoogleRequest = functions.https.onRequest((req, res) => {
+  return cors(req, res, () => {
+    console.log('request in makeGoogleRequest: ', req);
+    const apiKey = 'AIzaSyDDMIizZ49AcXojEeG1Qmckb-uduyvX6hY';
+    const url = `${ req.query.url }`;
+    const params = `units=${ req.query.units }`
+                  + `&origins=${ req.query.origins }`
+                  + `&destinations=${ req.query.destinations }`
+                  + `&key=${ apiKey }`;
+    const paramsObj = {
+      units: req.query.units,
+      origins: req.query.origins,
+      destinations: req.query.destinations,
+      key: apiKey
+    }
+    const combinedURL = url + '?' + params;
+    // const paramsUrl = url + "?" + paramsObj;
+    // return res.send({ url: combinedURL})
+    return axios.get(combinedURL).then( data => {
+      console.log('data in makeGoogleRequest: ', data);
+      return res.send({ data: data })
+      // return data;
+    }).catch( error => {
+      console.log('error on makeGoogleRequest: ', error);
+      return res.send({ err: error })
+      // return error
+    })
+  })
+})
 function sendTestEmail(functionName, params, msg) {
   const parameters = `function=${ functionName }`
                     + `&params=${ JSON.stringify(params) }`
